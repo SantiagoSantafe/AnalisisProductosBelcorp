@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Teachable Machine - Real-Time Product Prediction</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <style>
+        /* Estilos básicos */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.05);
+            color: #333;
+        }
+        #container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            background-color: #FFFFFF;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0px 8px 30px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 800px;
+            gap: 20px;
+        }
+        #main-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 60%;
+            text-align: center;
+        }
+        #title {
+            font-size: 1.5rem;
+            color: #545353;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        #webcam-container {
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+            width: 100%;
+        }
+        #product-details {
+            font-size: 1rem;
+            color: #666;
+            margin-top: 10px;
+            text-align: left;
+            width: 100%;
+            background-color: #fafafa;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0px 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        #add-to-cart {
+            background-color: #4CAF50;
+        }
+        #add-to-cart:hover {
+            background-color: #45A049;
+        }
+        #cancel {
+            background-color: #E1251B;
+        }
+        #cancel:hover {
+            background-color: #B71C17;
+        }
+        #confirmation-message {
+            margin-top: 10px;
+            color: green;
+            font-weight: bold;
+        }
+        #cart-container {
+            width: 35%;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        #cart-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        #cart-items {
+            list-style-type: none;
+            padding: 0;
+            margin-bottom: 15px;
+        }
+        #cart-items li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        #cart-items button {
+            background: none;
+            color: #E1251B;
+            border: none;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        #cart-total {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        #send-order {
+            width: 100%;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 10px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #send-order:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="main-content">
+            <div id="title">Teachable Machine Product Detection</div>
+            <button type="button" onclick="init()">Start</button>
+            <div id="webcam-container"></div>
+            <div id="product-details" style="display:none;">
+                <p><strong>Producto:</strong> <span id="product-name"></span></p>
+                <p><strong>Precio:</strong> $<span id="product-price"></span></p>
+                <p><strong>SKU:</strong> <span id="product-sku"></span></p>
+                <p><strong>Descripción:</strong> <span id="product-description"></span></p>
+                <div id="confirmation-message" style="display:none;">Producto añadido exitosamente</div>
+                <div class="button-group">
+                    <button id="add-to-cart" onclick="addToCart()">Añadir al carrito</button>
+                    <button id="cancel" onclick="cancelDisplay()">Cancelar</button>
+                </div>
+            </div>
+        </div>
+        <div id="cart-container">
+            <div id="cart-title">Carrito</div>
+            <ul id="cart-items"></ul>
+            <div id="cart-total">Total: $0</div>
+            <button id="send-order" onclick="sendOrder()">Enviar pedido</button>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        const URL = "https://teachablemachine.withgoogle.com/models/E1sVtNKcQ/";
+
+        let model, webcam, maxPredictions;
+        let isFrozen = false; // Variable para controlar el estado de congelación de la cámara
+        let cart = []; // Array para almacenar los productos del carrito
+
+        // Cargar el modelo y configurar la webcam
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            const flip = true;
+            webcam = new tmImage.Webcam(200, 200, flip);
+            await webcam.setup();
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+        }
+
+        async function loop() {
+            if (!isFrozen) {
+                webcam.update();
+                await predict();
+            }
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            const recognizedProducts = ["VIBRANZA", "VIBRANZA ADDICTION", "VIBRANZA BLANC"];
+
+            const bestPrediction = prediction.reduce((prev, current) => 
+                (prev.probability > current.probability) ? prev : current
+            );
+
+            if (bestPrediction.probability > 0.95 && recognizedProducts.includes(bestPrediction.className)) {
+                displayProduct(bestPrediction.className);
+                isFrozen = true; 
+            } else {
+                document.getElementById("product-details").style.display = "none";
+            }
+        }
+
+        function displayProduct(productName) {
+            const productDetails = document.getElementById("product-details");
+            let price, sku, description;
+
+            if (productName === "VIBRANZA ADDICTION") {
+                document.getElementById("product-name").innerText = "Vibranza Addiction";
+                price = "74990.00";
+                sku = "VZ-ADD-001";
+                description = "Una fragancia intensa y adictiva, perfecta para noches especiales.";
+            } else if (productName === "VIBRANZA BLANC") {
+                document.getElementById("product-name").innerText = "Vibranza Blanc";
+                price = "93000.00";
+                sku = "VZ-BLN-001";
+                description = "Un perfume fresco y elegante, ideal para el día a día.";
+            } else if (productName === "VIBRANZA") {
+                document.getElementById("product-name").innerText = "Vibranza";
+                price = "64990.00";
+                sku = "VZ-ORG-001";
+                description = "El clásico perfume Vibranza, una esencia que nunca pasa de moda.";
+            } else {
+                return;
+            }
+
+            document.getElementById("product-price").innerText = price;
+            document.getElementById("product-sku").innerText = sku;
+            document.getElementById("product-description").innerText = description;
+
+            productDetails.style.display = "block";
+        }
+
+        function addToCart() {
+            const productName = document.getElementById("product-name").innerText;
+            const productPrice = parseFloat(document.getElementById("product-price").innerText);
+            cart.push({ name: productName, price: productPrice });
+
+            updateCart();
+            document.getElementById("confirmation-message").style.display = "block";
+            setTimeout(() => {
+                document.getElementById("confirmation-message").style.display = "none";
+            }, 2000);
+
+            isFrozen = false;
+        }
+
+        function cancelDisplay() {
+            isFrozen = false;
+            document.getElementById("product-details").style.display = "none";
+        }
+
+        function updateCart() {
+            const cartItems = document.getElementById("cart-items");
+            cartItems.innerHTML = "";
+            let total = 0;
+
+            cart.forEach((item, index) => {
+                const li = document.createElement("li");
+                li.innerHTML = `${item.name} - $${item.price.toFixed(2)} <button onclick="removeFromCart(${index})">[X]</button>`;
+                cartItems.appendChild(li);
+                total += item.price;
+            });
+
+            document.getElementById("cart-total").innerText = `Total: $${total.toFixed(2)}`;
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1); // Eliminar producto del carrito
+            updateCart();
+        }
+
+        function sendOrder() {
+            if (cart.length > 0) {
+                alert("El carrito está vacío.");
+                return;
+            }
+            alert("Pedido enviado!");
+            cart = [];
+            updateCart();
+        }
+    </script>
+</body>
+</html>
